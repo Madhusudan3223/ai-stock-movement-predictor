@@ -1,44 +1,39 @@
-
----
-
-### ✅ 2. `app.py` (Updated to use `model_xgb.pkl`)
-
-```python
 import streamlit as st
-import pickle
-import numpy as np
+import pandas as pd
+import joblib
 
-# Load the model
-with open("model_xgb.pkl", "rb") as f:
-    model = pickle.load(f)
+# -------------------- Page Config --------------------
+st.set_page_config(page_title="📈 Market Movement Predictor", layout="centered")
 
-# Load top features
-with open("top_features.pkl", "rb") as f:
-    top_features = pickle.load(f)
-
-# App title and info
-st.set_page_config(page_title="NIFTY Predictor", page_icon="📉")
-st.title("📉 NIFTY Market Movement Predictor")
-
+# -------------------- Title & Description --------------------
+st.title("📊 NIFTY Market Movement Predictor")
 st.markdown("""
-This AI model uses technical indicators like **MACD**, **RSI**, **Bollinger Bands**, and **Returns** to predict:
-- **Buy (1)** if the market may go up 📈
-- **Sell (0)** if the market may go down 📉
+This AI model uses technical indicators (like MACD, RSI, Bollinger Bands) to predict whether the market will **go up** (Buy) or **go down** (Sell).
 """)
 
-# Input section
-st.header("📊 Enter Today's Technical Indicator Values")
+# -------------------- Load Model & Features --------------------
+try:
+    model = joblib.load("xgb_model.pkl")
+    top_features = joblib.load("top_features.pkl")
+except Exception as e:
+    st.error(f"❌ Error loading model or features: {e}")
+    st.stop()
+
+# -------------------- User Input --------------------
+st.subheader("📥 Enter Today's Technical Indicator Values")
 
 user_input = {}
 for feature in top_features:
-    user_input[feature] = st.number_input(f"{feature}", value=0.0)
+    user_input[feature] = st.number_input(f"{feature}", step=0.01, format="%.4f")
 
-# Prediction logic
+# -------------------- Prediction --------------------
 if st.button("🔮 Predict Market Movement"):
-    input_array = np.array([user_input[f] for f in top_features]).reshape(1, -1)
-    prediction = model.predict(input_array)[0]
-    
-    if prediction == 1:
-        st.success("📈 Prediction: BUY (Market likely to go UP)")
-    else:
-        st.error("📉 Prediction: SELL (Market likely to go DOWN)")
+    try:
+        input_df = pd.DataFrame([user_input])
+        prediction = model.predict(input_df)[0]
+        if prediction == 1:
+            st.success("📈 Prediction: Market Likely to Go **Up** (Buy Signal)")
+        else:
+            st.warning("📉 Prediction: Market Likely to Go **Down** (Sell Signal)")
+    except Exception as e:
+        st.error(f"❌ Prediction failed: {e}")
