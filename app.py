@@ -1,68 +1,84 @@
 import streamlit as st
 import pandas as pd
-import pickle
 import numpy as np
+import joblib
+import xgboost as xgb
+from sklearn.preprocessing import StandardScaler
 
-# Load trained XGBoost model
-model = pickle.load(open("xgb_model.pkl", "rb"))
+# ⏳ Load model once
+@st.cache_resource
+def load_model():
+    return joblib.load("xgb_model.pkl")
 
-# RSI Calculation
-def compute_rsi(series, period=14):
-    delta = series.diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=period).mean()
-    avg_loss = pd.Series(loss).rolling(window=period).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+model = load_model()
 
-# MACD Calculation
-def compute_macd(series, fast=12, slow=26, signal=9):
-    ema_fast = series.ewm(span=fast, min_periods=1).mean()
-    ema_slow = series.ewm(span=slow, min_periods=1).mean()
-    macd = ema_fast - ema_slow
-    signal_line = macd.ewm(span=signal, min_periods=1).mean()
-    return macd, signal_line
+# 📈 Technical indicators
+def add_technical_indicators(df):
+    df['ma7'] = df['Close'].rolling(window=7).mean()
+    df['ma21'] = df['Close'].rolling(window=21).mean()
+    df['returns'] = df['Close'].pct_change()
+    df['volatility'] = df['returns'].rolling(window=7).std()
 
-# Streamlit UI
-st.set_page_config(page_title="📊 Market Movement Predictor", layout="centered")
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    RS = gain / loss
+    df['rsi'] = 100 - (100 / (1 + RS))
+
+    df['ema12'] = df['Close'].ewm(span=12).mean()
+    df['ema26'] = df['Close'].ewm(span=26).mean()
+    df['macd'] = df['ema12'] - df['ema26']
+    df['macd_signal'] = df['macd'].ewm(span=9).mean()
+
+    df['bollinger_upper'] = df['ma21'] + 2 * df['Close'].rolling(window=21).std()
+    df['bollinger_lower'] = df['ma21'] - 2 * df['Close'].rolling(window=21).std()
+
+    return df
+
+# 🧹 Clean and prepare features
+def preprocess_data(df):
+    df = add_technical_indicators(df)
+    df = df.dropna()
+
+    # ✅ Match the feature names and order used in model training
+    expected_features = [
+        'macd_signal', 'ma7', 'ma21', 'rsi', 'volatility',
+        'bollinger_lower', 'returns', 'bollinger_upper', 'macd'
+    ]
+
+    # Remove any extra spaces and ensure correct order
+    df.columns = [col.strip() for col in df.columns]
+    X_live = df[expected_features].copy()
+
+    return X_live, df
+
+# 🚀 Streamlit UI
 st.title("📊 AI-Powered Market Movement Predictor")
-st.write("Upload your stock/NIFTY data to get up/down predictions based on technical indicators + XGBoost!")
+st.markdown("Upload your stock/NIFTY data to get up/down predictions based on technical indicators + XGBoost!")
 
-uploaded_file = st.file_uploader("Upload CSV file with columns: Date, Open, High, Low, Close, Volume", type="csv")
+uploaded_file = st.file_uploader("Upload CSV file with columns: Date, Open, High, Low, Close, Volume", type=["csv"])
 
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
+        st.success("✅ File uploaded successfully!")
 
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.sort_values('Date', inplace=True)
+        # Process data
+        X_live, df_processed = preprocess_data(df)
 
-        # Technical Indicators
-        df['ma7'] = df['Close'].rolling(window=7).mean()
-        df['ma21'] = df['Close'].rolling(window=21).mean()
-        df['returns'] = df['Close'].pct_change()
-        df['volatility'] = df['returns'].rolling(window=7).std()
-        df['rsi'] = compute_rsi(df['Close'])
-        df['macd'], df['macd_signal'] = compute_macd(df['Close'])
-        df['bollinger_upper'] = df['Close'].rolling(20).mean() + 2 * df['Close'].rolling(20).std()
-        df['bollinger_lower'] = df['Close'].rolling(20).mean() - 2 * df['Close'].rolling(20).std()
+        # Select the most recent row
+        latest_data = X_live.tail(1)
 
-        df.dropna(inplace=True)
+        # Make prediction
+        prediction = model.predict(latest_data)[0]
+        result = "📈 UP" if prediction == 1 else "📉 DOWN"
 
-        # Live input row
-        X_live = df[[
-            'ma7', 'ma21', 'returns', 'volatility', 'rsi',
-            'macd', 'macd_signal', 'bollinger_upper', 'bollinger_lower'
-        ]].tail(1)
+        st.subheader("Prediction:")
+        st.write(f"🔮 The model predicts the market will go: **{result}**")
 
-        # ✅ Fix: Remove spaces in column names to match model
-        X_live.columns = X_live.columns.str.strip()
-
-        # Predict
-        prediction = model.predict(X_live)[0]
-        st.success("📈 Predicted Movement: " + ("📉 Down" if prediction == 0 else "📈 Up"))
+        # Optional: Show last row of features
+        with st.expander("📋 View Latest Feature Data Used"):
+            st.dataframe(latest_data)
 
     except Exception as e:
-        st.error(f"Error processing data: {e}")
+        st.error(f"❌ Error processing data: {e}")
