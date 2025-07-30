@@ -1,38 +1,44 @@
+
+---
+
+### ✅ 2. `app.py` (Updated to use `model_xgb.pkl`)
+
+```python
 import streamlit as st
 import pickle
 import numpy as np
 
-# Load trained model
-with open("model.pkl", "rb") as f:
+# Load the model
+with open("model_xgb.pkl", "rb") as f:
     model = pickle.load(f)
 
-# Streamlit app
-st.set_page_config(page_title="📈 AI Stock Movement Predictor", layout="centered")
+# Load top features
+with open("top_features.pkl", "rb") as f:
+    top_features = pickle.load(f)
 
+# App title and info
+st.set_page_config(page_title="NIFTY Predictor", page_icon="📉")
 st.title("📉 NIFTY Market Movement Predictor")
+
 st.markdown("""
-This AI model uses technical indicators (like **MACD**, **RSI**, **Bollinger Bands**) to predict whether the market will **go up** (Buy) or **go down** (Sell).
+This AI model uses technical indicators like **MACD**, **RSI**, **Bollinger Bands**, and **Returns** to predict:
+- **Buy (1)** if the market may go up 📈
+- **Sell (0)** if the market may go down 📉
 """)
 
-st.divider()
-st.subheader("📊 Enter Today's Technical Indicator Values")
+# Input section
+st.header("📊 Enter Today's Technical Indicator Values")
 
-# Input fields
-bollinger_upper = st.number_input("📈 Bollinger Upper Band", format="%.4f", step=0.0001)
-bollinger_lower = st.number_input("📉 Bollinger Lower Band", format="%.4f", step=0.0001)
-macd = st.number_input("🔁 MACD", format="%.4f", step=0.0001)
-rsi = st.number_input("🧠 RSI", format="%.4f", step=0.0001)
-returns = st.number_input("💹 Daily Returns", format="%.4f", step=0.0001)
+user_input = {}
+for feature in top_features:
+    user_input[feature] = st.number_input(f"{feature}", value=0.0)
 
-# Predict button
-if st.button("🧠 Predict Market Movement"):
-    input_data = np.array([[bollinger_upper, bollinger_lower, macd, rsi, returns]])
+# Prediction logic
+if st.button("🔮 Predict Market Movement"):
+    input_array = np.array([user_input[f] for f in top_features]).reshape(1, -1)
+    prediction = model.predict(input_array)[0]
     
-    # Model prediction
-    prediction = model.predict(input_data)[0]
-
-    # Result display
     if prediction == 1:
-        st.success("📈 Market is likely to go **UP** 📈 (Consider Buy)")
+        st.success("📈 Prediction: BUY (Market likely to go UP)")
     else:
-        st.error("📉 Market is likely to go **DOWN** 📉 (Consider Sell)")
+        st.error("📉 Prediction: SELL (Market likely to go DOWN)")
