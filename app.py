@@ -1,52 +1,31 @@
-import streamlit as st
 import pandas as pd
-import pickle
-import xgboost as xgb
+import ta
 
-# Load the trained XGBoost model and top features
-with open('xgb_model.pkl', 'rb') as f:
-    model = pickle.load(f)
+# Step 1: Load your raw CSV
+df = pd.read_csv("sample_data.csv")
 
-with open('top_features.pkl', 'rb') as f:
-    top_features = pickle.load(f)
+# Step 2: Ensure 'Date' column is datetime
+df['Date'] = pd.to_datetime(df['Date'])
 
-# Strip feature names just in case
-top_features = [f.strip() for f in top_features]
+# Step 3: Calculate indicators using `ta` library
+# Bollinger Bands
+bb = ta.volatility.BollingerBands(close=df['Close'], window=20, window_dev=2)
+df['bollinger_upper'] = bb.bollinger_hband()
+df['bollinger_lower'] = bb.bollinger_lband()
 
-# App title
-st.title("📊 AI-Powered Market Movement Predictor")
-st.markdown("Upload your stock/NIFTY data to get up/down predictions based on technical indicators + XGBoost!")
+# MACD
+macd = ta.trend.MACD(close=df['Close'])
+df['macd'] = macd.macd()
 
-# File uploader
-uploaded_file = st.file_uploader("Upload CSV file with columns: Date, Open, High, Low, Close, Volume", type=['csv'])
+# RSI
+df['rsi'] = ta.momentum.RSIIndicator(close=df['Close'], window=14).rsi()
 
-if uploaded_file is not None:
-    try:
-        # Read and clean the data
-        df = pd.read_csv(uploaded_file)
+# Daily Returns
+df['returns'] = df['Close'].pct_change()
 
-        # Strip column names (fixes mismatch error)
-        df.columns = df.columns.str.strip()
+# Drop rows with NaNs from indicator calculations
+df.dropna(inplace=True)
 
-        # Show preview
-        st.subheader("📄 Data Preview")
-        st.dataframe(df.head())
-
-        # Ensure top features exist in data
-        if all(f in df.columns for f in top_features):
-            # Predict
-            X = df[top_features]
-            predictions = model.predict(X)
-
-            # Add prediction to dataframe
-            df['Prediction'] = ['🔺 Up' if p == 1 else '🔻 Down' for p in predictions]
-
-            # Show results
-            st.subheader("📈 Prediction Results")
-            st.dataframe(df[['Date'] + top_features + ['Prediction']])
-        else:
-            missing = [f for f in top_features if f not in df.columns]
-            st.error(f"Missing required features in uploaded CSV: {missing}")
-
-    except Exception as e:
-        st.error(f"❌ Error processing data: {e}")
+# Save fixed CSV
+df.to_csv("fixed_data.csv", index=False)
+print("✅ fixed_data.csv saved with all required features.")
